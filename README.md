@@ -1,3 +1,3 @@
 # epo-ops-api
 
-add description of epo-ops-api here
+Preliminary Haskell library for accessing patent information through EPO OPS.
