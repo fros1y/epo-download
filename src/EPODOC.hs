@@ -14,23 +14,18 @@ module EPODOC
       fromEPODOC,
     ) where
 
-import Lib.Prelude
-import qualified Text.Parsec as Parsec
-import qualified Data.Text as T
 import qualified Data.Char
-
-
+import           Lib.Prelude
+import qualified Text.Parsec as Parsec
 
 data EPODOC = EPODOC {
   countryCode :: Text,
-  serial :: Text,
-  kind :: Maybe Text
+  serial      :: Text,
+  kind        :: Maybe Text
 } deriving (Show, Eq)
 
 fromEPODOC :: EPODOC -> Text
-fromEPODOC epodoc = T.concat [ countryCode epodoc
-                              , serial epodoc
-                              , fromMaybe "" (kind epodoc)]
+fromEPODOC epodoc = countryCode epodoc <> serial epodoc <> fromMaybe "" (kind epodoc)
 
 epodocFormat :: Parsec.Parsec Text () EPODOC
 epodocFormat = do
