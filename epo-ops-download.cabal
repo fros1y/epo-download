@@ -1,7 +1,7 @@
 name:                epo-ops-download
 version:             0.1.0.0
 synopsis:            Download PDFs of patent documents using EPO OPS API
-license:             AGPL3
+license:             AGPL-3
 license-file:        LICENSE
 author:              Martin Galese
 maintainer:          martin@galese.net
@@ -33,6 +33,8 @@ library
                      , pdf-toolbox-core
                      , pdf-toolbox-document
                      , turtle
+                     , xml-conduit
+                     , errors
 
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude

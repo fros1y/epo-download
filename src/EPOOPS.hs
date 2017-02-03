@@ -6,11 +6,12 @@ Description : EPOOPS's main module
 
 -}
 module EPOOPS
-    ( requestOAuthToken,
-    downloadBiblioJSON,
-    downloadImageDataJSON,
-    downloadEPODDOC
-    ) where
+    -- ( requestOAuthToken,
+    -- downloadBiblioXML,
+    -- downloadImageDataXML,
+    -- downloadEPODDOC
+    -- )
+    where
 
 import           Control.Arrow
 import           Control.Lens       hiding ((&))
@@ -28,12 +29,34 @@ import qualified System.IO.Streams  as S
 import qualified System.IO.Temp     as Temp
 import           Text.Printf        (printf)
 import           Text.Read          (readMaybe)
-import qualified Turtle
+import qualified Turtle hiding ((<>))
+import qualified Text.Parsec as Parsec
+
+import qualified Text.XML as XML
+import qualified Text.XML.Cursor as XML
+import Text.XML.Cursor (($/), (&/), ($//), (>=>), ($|))
 
 newtype OAuth2Token = OAuth2Token { _rawtoken :: B.ByteString } deriving (Show, Eq)
 
+formatAsDOCDB :: EPODOC -> [Char]
+formatAsDOCDB epodoc = [i|${cc}.${serialNo}.${kindCode}|] where
+  cc :: [Char]
+  cc = (convertString . countryCode) epodoc
+  serialNo :: [Char]
+  serialNo = (convertString . serial) epodoc
+  kindCode :: [Char]
+  kindCode = convertString (fromMaybe "%" $ kind epodoc)
+
+formatAsEPODOC :: EPODOC -> [Char]
+formatAsEPODOC epodoc = convertString (fromEPODOC epodoc)
+
+opsSearchString :: EPODOC -> [Char]
+opsSearchString epodoc = case kind epodoc of
+  Nothing -> [i|epodoc/${formatAsEPODOC epodoc}|]
+  Just _ -> [i|docdb/${formatAsDOCDB epodoc}|]
+
 opsEndPoint :: [Char]
-opsEndPoint = "https://ops.epo.org/3.1" 
+opsEndPoint = "https://ops.epo.org/3.1"
 
 requestOAuthToken :: Text -> Text -> IO OAuth2Token
 requestOAuthToken client_id client_secret = do
@@ -50,62 +73,93 @@ requestOAuthToken client_id client_secret = do
 
 
 type Query = [Char]
-epoRequest :: OAuth2Token -> Query -> IO Text
+epoRequest :: OAuth2Token -> Query -> IO XML.Document
 epoRequest token query = do
   let opts =  Wreq.defaults
             & Wreq.auth ?~ Wreq.oauth2Bearer (_rawtoken token)
   r <- Wreq.getWith opts query
-  let jsonp = (convertString $ r ^. Wreq.responseBody)
-      json = T.dropEnd 1 (T.drop 14 jsonp)
-  return json
+  let body = r ^. Wreq.responseBody
+      xml = XML.parseLBS_ XML.def body
+  return xml
 
-downloadBiblioJSON :: OAuth2Token -> EPODOC -> IO Text
-downloadBiblioJSON token epodoc = epoRequest token [i|${opsEndPoint}/rest-services/published-data/publication/epodoc/${epokey}/biblio.js|]
-  where
-    epokey = (convertString $ fromEPODOC epodoc) :: [Char]
+downloadBiblioXML :: OAuth2Token -> EPODOC -> IO XML.Document
+downloadBiblioXML token epodoc = epoRequest token [i|${opsEndPoint}/rest-services/published-data/publication/${opsSearchString epodoc}/biblio|]
 
-downloadImageDataJSON :: OAuth2Token -> EPODOC -> IO Text
-downloadImageDataJSON token epodoc = epoRequest token [i|${opsEndPoint}/rest-services/published-data/publication/epodoc/${epokey}/images.js|]
-  where
-    epokey = (convertString $ fromEPODOC epodoc) :: [Char]
+downloadImageDataXML :: OAuth2Token -> EPODOC -> IO XML.Document
+downloadImageDataXML token epodoc = epoRequest token [i|${opsEndPoint}/rest-services/published-data/publication/${opsSearchString epodoc}/images|]
 
-downloadEPODDOC :: OAuth2Token -> EPODOC -> IO ([Char])
-downloadEPODDOC token epodoc = do
-  imagedata <- downloadImageDataJSON token epodoc
-  let count = fromMaybe 0 (getPageCount imagedata)
-      imageLink = getImageLink imagedata
-      pages = [1..count]
-      epokey = (convertString $ fromEPODOC epodoc) :: [Char]
+rebuildImageLink :: EPODOC -> [Char]
+rebuildImageLink epodoc = printf "published-data/images/%s/%s/%s/fullimage"
+                                  ((convertString (countryCode epodoc))::[Char])
+                                  ((convertString (serial epodoc))::[Char])
+                                  ((convertString (fromMaybe "%" $ kind epodoc))::[Char])
+
+imageLinktoEPODOC :: Text -> Maybe EPODOC
+imageLinktoEPODOC link = hush $ Parsec.parse opsImageFormat "opsImageFormat" link where
+  opsImageFormat :: Parsec.Parsec Text () EPODOC
+  opsImageFormat = do
+    Parsec.string "published-data/images/"
+    countryPart <- Parsec.count 2 Parsec.letter
+    Parsec.char '/'
+    serialPart <- Parsec.many1 Parsec.digit
+    Parsec.char '/'
+    kindPart <- Parsec.many1 (Parsec.letter <|> Parsec.digit)
+    return $ EPODOC (convertString countryPart)
+                    (convertString serialPart)
+                    (Just (convertString kindPart))
+
+type InstanceListing = (Int, EPODOC)
+
+downloadEPODOCInstance :: OAuth2Token -> InstanceListing -> IO ()
+downloadEPODOCInstance token (count, instanceEPODOC) = do
+  let pages = [1..count]
+      epokey = formatAsEPODOC instanceEPODOC
+      output :: [Char]
       output = [i|${epokey}.pdf|]
   _ <- Temp.withTempDirectory "." "pat-download." $ \tmpDir -> do
         printf "Downloading %s: " epokey
-        mapM_ (downloadImagePDF tmpDir token epodoc imageLink) pages
-        Turtle.shell [i|gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile=${output} ./"${tmpDir}"/*.pdf|] Turtle.empty
+        mapM_ (downloadImagePDF tmpDir token instanceEPODOC (rebuildImageLink instanceEPODOC)) pages
+        Turtle.shell [i|gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile=${output} "${tmpDir}"/*.pdf|] Turtle.empty
   printf "Done! \n"
-  return output
 
-getImageLink :: Text -> Text
-getImageLink json = convertString $ json ^.
-  key "ops:world-patent-data" .
-  key "ops:document-inquiry" .
-  key "ops:inquiry-result" .
-  key "ops:document-instance" .
-  nth 0 .
-  key "@link" . _String
 
-getPageCount :: Text -> Maybe Int
-getPageCount json = readMaybe . convertString $ json ^.
-      key "ops:world-patent-data" .
-      key "ops:document-inquiry" .
-      key "ops:inquiry-result" .
-      key "ops:document-instance" .
-      nth 0 .
-      key "@number-of-pages" . _String
 
-downloadImagePDF :: [Char] -> OAuth2Token -> EPODOC -> Text -> Int -> IO ()
+downloadEPODDOC :: OAuth2Token -> EPODOC -> Bool -> IO ([EPODOC])
+downloadEPODDOC token rootEPODOC strict = do
+  imagedata <- (downloadImageDataXML token rootEPODOC)
+  let instances = filter allow $ getLinksAndCounts imagedata
+      unwantedKind e (c, k) = if (countryCode e) == c
+                          then (kind rootEPODOC) /= Just k && (kind e) == Just k
+                          else False
+      allow (l, e)
+       | l <= 1 = False
+       | strict && not (e `equivEPODOC` rootEPODOC) = False
+       | e `unwantedKind` ("EP", "A3") = False -- exclude search reports, unless we ask for them
+       | e `unwantedKind` ("EP", "A4") = False
+       | otherwise = True
+  mapM_ (downloadEPODOCInstance token) instances
+  return $ map snd instances
+
+
+
+getLinksAndCounts :: XML.Document -> [InstanceListing]
+getLinksAndCounts xml = catMaybes (getLinkAndCount <$> instances)
+  where
+    cursor = XML.fromDocument xml
+    instances = cursor $// XML.laxElement "document-instance" >=> XML.attributeIs "desc" "FullDocument"
+
+getLinkAndCount :: XML.Cursor -> Maybe InstanceListing
+getLinkAndCount cursor = listing
+  where
+    listing = case (pageCount, instanceEPODOC) of
+        (Just pg, Just i) -> Just (pg, i)
+        (_, _) -> Nothing
+    instanceEPODOC = imageLinktoEPODOC $ headDef "" (XML.attribute "link" cursor)
+    pageCount = join $ (readMaybe . convertString) <$> headMay (XML.attribute "number-of-pages" cursor)
+
+downloadImagePDF :: [Char] -> OAuth2Token -> EPODOC -> [Char] -> Int -> IO ()
 downloadImagePDF path token epodoc imageLink range = do
-    let query = [i|${opsEndPoint}/rest-services/${imageLink'}.pdf?Range=${range}|]
-        imageLink' = (convertString imageLink) :: [Char]
+    let query = [i|${opsEndPoint}/rest-services/${imageLink}.pdf?Range=${range}|]
         epokey = (convertString $ fromEPODOC epodoc) :: [Char]
         file = printf "%s/%s-%04d.pdf" path epokey range --[i|download-${range}.pdf|]
     printf "[%d] " range

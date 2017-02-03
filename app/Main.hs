@@ -11,7 +11,8 @@ import           System.IO               (BufferMode (NoBuffering),
 data PatentOptions = PatentOptions
   {
     consumerKey :: [Char],
-    secretKey   :: [Char]
+    secretKey   :: [Char],
+    strict      :: Bool
   }
 
 instance Options PatentOptions where
@@ -20,10 +21,16 @@ instance Options PatentOptions where
         "Consumer Key from EPO OPS"
     <*> simpleOption "secretKey" ""
         "Secret Key from EPO OPS"
+    <*> simpleOption "strict" True
+        "Limit retrived documents to specific EPODOC input"
 
 main :: IO ()
 main = runCommand $ \opts args -> do
     hSetBuffering stdout NoBuffering
-    let epodocList = rights (map (EPODOC.parseToEPODOC . convertString) args)
-    token <- EPOOPS.requestOAuthToken ((convertString . consumerKey) opts) ((convertString . secretKey) opts)
-    mapM_ (EPOOPS.downloadEPODDOC token) epodocList
+    let parse = EPODOC.parseToEPODOC . convertString $ headDef "" args
+    case parse of
+      (Left err) -> do
+        print err
+      (Right epodoc) -> do
+        token <- EPOOPS.requestOAuthToken ((convertString . consumerKey) opts) ((convertString . secretKey) opts)
+        void $ EPOOPS.downloadEPODDOC token epodoc (strict opts)

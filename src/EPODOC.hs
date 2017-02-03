@@ -12,6 +12,7 @@ module EPODOC
     ( EPODOC(..),
       parseToEPODOC,
       fromEPODOC,
+      equivEPODOC
     ) where
 
 import qualified Data.Char
@@ -24,6 +25,11 @@ data EPODOC = EPODOC {
   kind        :: Maybe Text
 } deriving (Show, Eq)
 
+equivEPODOC :: EPODOC -> EPODOC -> Bool
+equivEPODOC a@(EPODOC {kind=Nothing}) b = (countryCode a) == (countryCode b) && (serial a)== (serial b)
+equivEPODOC a b@(EPODOC {kind=Nothing}) = (countryCode a) == (countryCode b) && (serial a)== (serial b)
+equivEPODOC a b = a == b
+
 fromEPODOC :: EPODOC -> Text
 fromEPODOC epodoc = countryCode epodoc <> serial epodoc <> fromMaybe "" (kind epodoc)
 
@@ -35,6 +41,7 @@ epodocFormat = do
     return $ EPODOC (convertString countryPart)
                     (convertString serialPart)
                     (convertString <$> kindPart)
+
 
 messyUSPatent :: Parsec.Parsec Text () EPODOC
 messyUSPatent = do
