@@ -138,6 +138,7 @@ downloadEPODDOC token rootEPODOC strict = do
        | e `unwantedKind` ("EP", "A3") = False -- exclude search reports, unless we ask for them
        | e `unwantedKind` ("EP", "A4") = False
        | otherwise = True
+  when (null instances) $ printf "Nothing found for %s\n" (((convertString . fromEPODOC) rootEPODOC) :: [Char])
   mapM_ (downloadEPODOCInstance token) instances
   return $ map snd instances
 
