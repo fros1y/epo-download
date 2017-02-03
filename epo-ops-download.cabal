@@ -35,6 +35,7 @@ library
                      , turtle
                      , xml-conduit
                      , errors
+                     , containers
 
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude

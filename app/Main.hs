@@ -35,10 +35,12 @@ main = runCommand $ \opts args -> do
           | (statusCode s) == 404 = Just ("Not Found" :: [Char])
           | otherwise = Nothing
         onNotFoundError _ = Nothing
+        credentials = EPOOPS.Credentials (consumerKey opts) (secretKey opts)
     case parse of
       (Left err) -> do
         print err
-      (Right epodoc) -> handleJust onNotFoundError (putStrLn) $
-        do
-          token <- EPOOPS.requestOAuthToken ((convertString . consumerKey) opts) ((convertString . secretKey) opts)
-          void $ EPOOPS.downloadEPODDOC token epodoc (strict opts)
+      (Right epodoc) ->
+        handleJust onNotFoundError (putStrLn) $
+          void $ EPOOPS.withOPSSession credentials $ do
+            instances <- EPOOPS.getEPODOCInstances (strict opts) epodoc
+            forM_ instances EPOOPS.downloadEPODOCInstance

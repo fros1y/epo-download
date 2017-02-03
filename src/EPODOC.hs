@@ -1,3 +1,4 @@
+{-# LANGUAGE QuasiQuotes                #-}
 {-|
 Module      : EPODOC
 Description : EPODOC's main module
@@ -12,13 +13,16 @@ module EPODOC
     ( EPODOC(..),
       parseToEPODOC,
       fromEPODOC,
-      equivEPODOC
+      equivEPODOC,
+      formatAsDOCDB,
+      formatAsEPODOC
     ) where
 
 import qualified Data.Char
 import           Lib.Prelude
 import qualified Text.Parsec as Parsec
 import qualified Data.Text as T
+import           Data.String.Here
 
 data EPODOC = EPODOC {
   countryCode :: Text,
@@ -28,18 +32,30 @@ data EPODOC = EPODOC {
 } deriving (Show, Eq)
 
 equivEPODOC :: EPODOC -> EPODOC -> Bool
-equivEPODOC a@(EPODOC{untrimmedSerial=Just u}) b = u `T.isInfixOf` (fromEPODOC b)
-equivEPODOC a b@(EPODOC{untrimmedSerial=Just u}) = u `T.isInfixOf` (fromEPODOC a)
-equivEPODOC a@(EPODOC {kind=Nothing}) b = (countryCode a) == (countryCode b) && (serial a)== (serial b)
-equivEPODOC a b@(EPODOC {kind=Nothing}) = (countryCode a) == (countryCode b) && (serial a)== (serial b)
+equivEPODOC EPODOC{untrimmedSerial=Just u} b = u `T.isInfixOf` fromEPODOC b
+equivEPODOC a EPODOC{untrimmedSerial=Just u} = u `T.isInfixOf` fromEPODOC a
+equivEPODOC a@EPODOC {kind=Nothing} b = countryCode a == countryCode b && serial a == serial b
+equivEPODOC a b@EPODOC {kind=Nothing} = countryCode a == countryCode b && serial a == serial b
 equivEPODOC a b = a == b
 
 fromEPODOC :: EPODOC -> Text
 fromEPODOC epodoc = countryCode epodoc <> serial epodoc <> fromMaybe "" (kind epodoc)
 
+formatAsDOCDB :: EPODOC -> [Char]
+formatAsDOCDB epodoc = [i|${cc}.${serialNo}.${kindCode}|] where
+  cc :: [Char]
+  cc = (convertString . countryCode) epodoc
+  serialNo :: [Char]
+  serialNo = (convertString . serial) epodoc
+  kindCode :: [Char]
+  kindCode = convertString (fromMaybe "%" $ kind epodoc)
+
+formatAsEPODOC :: EPODOC -> [Char]
+formatAsEPODOC epodoc = convertString (fromEPODOC epodoc)
+
 usPubAppFormat :: Parsec.Parsec Text () EPODOC
 usPubAppFormat = do
-  Parsec.string "US"
+  void $ Parsec.string "US"
   year <- Parsec.count 4 Parsec.digit
   serialNo<- Parsec.count 7 Parsec.digit
   let trimLeadZero = dropWhile (== '0') serialNo -- For some reason, EPO data drops these zeros
@@ -111,7 +127,7 @@ numberSignalPhrase = void $ Parsec.choice [
   Parsec.try $ Parsec.string "Number"]
 
 imperialYear :: Parsec.Parsec Text () Int
-imperialYear = foldl' (\a i -> a * 10 + Data.Char.digitToInt i) 0 <$> Parsec.count 2 Parsec.digit
+imperialYear = foldl' (\a int -> a * 10 + Data.Char.digitToInt int) 0 <$> Parsec.count 2 Parsec.digit
 
 jpxNumber :: Parsec.Parsec Text () EPODOC
 jpxNumber = do
@@ -121,7 +137,7 @@ jpxNumber = do
   -- http://www.epo.org/searching-for-patents/helpful-resources/asian/japan/numbering.html
   let offset = if emperor == "JPS" then 1925 else 1988
       numbers = convertString $ show (year + offset) ++ serialPart
-  return $ EPODOC "JP" numbers (Just "A") (Just (convertString $ emperor<>(show year)<>serialPart)) -- A is the unexamined application.
+  return $ EPODOC "JP" numbers (Just "A") (Just (convertString $ emperor <> show year <> serialPart)) -- A is the unexamined application.
 
 
 triplet :: Parsec.ParsecT Text u Identity [Char]
