@@ -48,6 +48,8 @@ executable epo-download
                      , protolude >= 0.1.6 && < 0.2
                      , options
                      , string-conversions
+                     , http-types
+                     , http-client
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude
 
