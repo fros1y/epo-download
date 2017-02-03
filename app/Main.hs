@@ -38,6 +38,7 @@ main = runCommand $ \opts args -> do
     case parse of
       (Left err) -> do
         print err
-      (Right epodoc) -> handleJust onNotFoundError (putStrLn) $ do
-        token <- EPOOPS.requestOAuthToken ((convertString . consumerKey) opts) ((convertString . secretKey) opts)
-        void $ EPOOPS.downloadEPODDOC token epodoc (strict opts)
+      (Right epodoc) -> handleJust onNotFoundError (putStrLn) $
+        do
+          token <- EPOOPS.requestOAuthToken ((convertString . consumerKey) opts) ((convertString . secretKey) opts)
+          void $ EPOOPS.downloadEPODDOC token epodoc (strict opts)

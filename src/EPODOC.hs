@@ -18,20 +18,37 @@ module EPODOC
 import qualified Data.Char
 import           Lib.Prelude
 import qualified Text.Parsec as Parsec
+import qualified Data.Text as T
 
 data EPODOC = EPODOC {
   countryCode :: Text,
   serial      :: Text,
-  kind        :: Maybe Text
+  kind        :: Maybe Text,
+  untrimmedSerial     :: Maybe Text
 } deriving (Show, Eq)
 
 equivEPODOC :: EPODOC -> EPODOC -> Bool
+equivEPODOC a@(EPODOC{untrimmedSerial=Just u}) b = u `T.isInfixOf` (fromEPODOC b)
+equivEPODOC a b@(EPODOC{untrimmedSerial=Just u}) = u `T.isInfixOf` (fromEPODOC a)
 equivEPODOC a@(EPODOC {kind=Nothing}) b = (countryCode a) == (countryCode b) && (serial a)== (serial b)
 equivEPODOC a b@(EPODOC {kind=Nothing}) = (countryCode a) == (countryCode b) && (serial a)== (serial b)
 equivEPODOC a b = a == b
 
 fromEPODOC :: EPODOC -> Text
 fromEPODOC epodoc = countryCode epodoc <> serial epodoc <> fromMaybe "" (kind epodoc)
+
+usPubAppFormat :: Parsec.Parsec Text () EPODOC
+usPubAppFormat = do
+  Parsec.string "US"
+  year <- Parsec.count 4 Parsec.digit
+  serialNo<- Parsec.count 7 Parsec.digit
+  let trimLeadZero = dropWhile (== '0') serialNo -- For some reason, EPO data drops these zeros
+      serialPart = year <> trimLeadZero
+  kindPart <- Parsec.optionMaybe (Parsec.many1 Parsec.anyChar)
+  return $ EPODOC "US"
+                (convertString serialPart)
+                (convertString <$> kindPart)
+                (Just (convertString ("US" <> year <> serialNo)))
 
 epodocFormat :: Parsec.Parsec Text () EPODOC
 epodocFormat = do
@@ -41,6 +58,7 @@ epodocFormat = do
     return $ EPODOC (convertString countryPart)
                     (convertString serialPart)
                     (convertString <$> kindPart)
+                    Nothing
 
 
 messyUSPatent :: Parsec.Parsec Text () EPODOC
@@ -52,7 +70,7 @@ messyUSPatent = do
     _ <- Parsec.spaces
     return ()
   serialNo <- commaSepPatNumber
-  return $ EPODOC "US" serialNo Nothing
+  return $ EPODOC "US" serialNo Nothing Nothing
 
 lensLikeFormat :: Parsec.Parsec Text () EPODOC
 lensLikeFormat = do
@@ -64,6 +82,7 @@ lensLikeFormat = do
   return $ EPODOC (convertString countryPart)
                   (convertString serialPart)
                   (Just (convertString kindPart))
+                  Nothing
 
 countryPhrase :: Parsec.Parsec Text () ()
 countryPhrase = void $ Parsec.choice [
@@ -102,7 +121,7 @@ jpxNumber = do
   -- http://www.epo.org/searching-for-patents/helpful-resources/asian/japan/numbering.html
   let offset = if emperor == "JPS" then 1925 else 1988
       numbers = convertString $ show (year + offset) ++ serialPart
-  return $ EPODOC "JP" numbers (Just "A") -- A is the unexamined application.
+  return $ EPODOC "JP" numbers (Just "A") (Just (convertString $ emperor<>(show year)<>serialPart)) -- A is the unexamined application.
 
 
 triplet :: Parsec.ParsecT Text u Identity [Char]
@@ -116,7 +135,8 @@ commaSepPatNumber = do
   return $ convertString (firstPart : concat rest)
 
 patentFormats :: Parsec.Parsec Text () EPODOC
-patentFormats =  Parsec.choice [Parsec.try epodocFormat,
+patentFormats =  Parsec.choice [Parsec.try usPubAppFormat,
+                                Parsec.try epodocFormat,
                                 Parsec.try jpxNumber,
                                 Parsec.try messyUSPatent,
                                 lensLikeFormat]

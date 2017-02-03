@@ -107,6 +107,7 @@ imageLinktoEPODOC link = hush $ Parsec.parse opsImageFormat "opsImageFormat" lin
     return $ EPODOC (convertString countryPart)
                     (convertString serialPart)
                     (Just (convertString kindPart))
+                    Nothing
 
 type InstanceListing = (Int, EPODOC)
 
