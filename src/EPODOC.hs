@@ -57,6 +57,7 @@ usPubAppFormat :: Parsec.Parsec Text () EPODOC
 usPubAppFormat = do
   void $ Parsec.string "US"
   year <- Parsec.count 4 Parsec.digit
+  Parsec.optional $ Parsec.char '/'
   serialNo<- Parsec.count 7 Parsec.digit
   let trimLeadZero = dropWhile (== '0') serialNo -- For some reason, EPO data drops these zeros
       serialPart = year <> trimLeadZero
