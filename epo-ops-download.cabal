@@ -27,11 +27,7 @@ library
                      , text
                      , bytestring
                      , temporary
-                     , network
                      , io-streams
-                     , http-client
-                     , pdf-toolbox-core
-                     , pdf-toolbox-document
                      , turtle
                      , xml-conduit
                      , errors
