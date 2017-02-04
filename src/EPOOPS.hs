@@ -73,6 +73,15 @@ data OPSService = Biblio | Abstract | FullCycle | FullText | Description | Claim
 type Quotas = (OPSServiceState, Map OPSServiceQuota (OPSServiceTraffic, Int))
 type InstanceListing = (Int, EPODOC)
 
+
+-- 'idle (images=green:200, inpadoc=green:60, other=green:1000, retrieval=green:200, search=green:30)'
+maxQuota :: OPSServiceQuota -> Int
+maxQuota RetrievalQuota = 200
+maxQuota SearchQuota = 30
+maxQuota INPADOCQuota = 60
+maxQuota ImagesQuota = 200
+maxQuota OtherQuota = 1000
+
 initialState :: SessionState
 initialState = SessionState
                 (Idle, Map.fromList [
@@ -102,16 +111,18 @@ authenticate = do
         put sessionState {tokenState = Just newtoken}
         return newtoken
 
+
 potentiallyThrottle :: OPSService -> OPSSession ()
 potentiallyThrottle service = do
   quota <- quotaState <$> get
-  let (trafficLight, requests) = fromMaybe (Black, 0) $
-                                    Map.lookup  (opsServiceToServiceQuota service)
+  let quotaType = opsServiceToServiceQuota service
+      (trafficLight, requests) = fromMaybe (Black, 0) $
+                                    Map.lookup  quotaType
                                     (snd quota)
       serviceStatus = fst quota
   delayForServiceStatus serviceStatus
   delayForTrafficLight trafficLight
-  delayForRate requests
+  delayForRate quotaType requests
 
 delayForServiceStatus :: OPSServiceState -> OPSSession ()
 delayForServiceStatus Overloaded = do
@@ -143,15 +154,24 @@ delayForTrafficLight Green = do
   $(logDebug) "Service Traffic: Green"
   return ()
 
-delayForRate :: Int -> OPSSession ()
-delayForRate rate = do
-  let delay = floor $ (( 1.0/((fromIntegral rate) / 60.0) * 0.2) * 1000.0 :: Double)
+delayForRate :: OPSServiceQuota -> Int -> OPSSession ()
+delayForRate service rate = do
+  let maxRate = maxQuota service
+      delay = floor $ (((60.0/fromIntegral rate) - (60.0/fromIntegral maxRate)) * 1000.0 :: Double)
   $(logDebug) [i|Service rate limit is ${rate}. Delaying ${delay} milliseconds|]
   liftIO $ threadDelay delay
 
+updateThrottling :: Text -> OPSSession ()
+updateThrottling rawThrottle = do
+  sessionState <- get
+  throttle <- parseThrottleStatement rawThrottle
+  $(logDebug) [i|rawThrottle: '${rawThrottle}'|]
+  $(logDebug) [i|parsedThrottle: '${throttle}'|]
+  put sessionState {quotaState = throttle}
+
+
 epoRequest :: EPODOC -> OPSService -> OPSSession XML.Document
 epoRequest epodoc service = do
-  sessionState <- get
   token <- authenticate
   potentiallyThrottle service
   let opts =  Wreq.defaults
@@ -162,22 +182,30 @@ epoRequest epodoc service = do
       xml = XML.parseLBS_ XML.def body
       rawThrottle :: Text
       rawThrottle = convertString $ r ^. Wreq.responseHeader "X-Throttling-Control"
-  throttle <- parseThrottleStatement rawThrottle
-  $(logDebug) [i|rawThrottle: '${rawThrottle}'|]
-  $(logDebug) [i|parsedThrottle: '${throttle}'|]
-  put sessionState {quotaState = throttle}
+  updateThrottling rawThrottle
   return xml
 
 downloadEPODOCPageAsPDF :: EPODOC -> [Char] -> (CurrPage -> IO ()) -> Int -> OPSSession ()
 downloadEPODOCPageAsPDF epodoc path progressFn page = do
-  token <- authenticate
-  potentiallyThrottle Images
   let imageLink = rebuildImageLink epodoc
       query = [i|${opsEndPoint}/rest-services/${imageLink}.pdf?Range=${page}|]
       epokey = (convertString $ fromEPODOC epodoc) :: [Char]
       file = printf "%s/%s-%04d.pdf" path epokey page
-  liftIO $ downloadFile token query file
+  downloadFile query file
   liftIO $ progressFn page
+
+downloadFile :: [Char] -> FilePath -> OPSSession ()
+downloadFile url name = do
+  token <- authenticate
+  potentiallyThrottle Images
+  let opts =  Wreq.defaults
+            & Wreq.auth ?~ Wreq.oauth2Bearer (_rawtoken token)
+  r <- liftIO $ Wreq.getWith opts url
+  output <- liftIO $ fromLazyByteString $ r ^. Wreq.responseBody
+  liftIO $ S.withFileAsOutput name (S.connect output)
+  let rawThrottle :: Text
+      rawThrottle = convertString $ r ^. Wreq.responseHeader "X-Throttling-Control"
+  updateThrottling rawThrottle
 
 getEPODOCInstances :: Bool -> EPODOC -> OPSSession [InstanceListing]
 getEPODOCInstances strictly epodoc = do
@@ -212,13 +240,7 @@ downloadEPODOCInstance progressFn (count, instanceEPODOC) = do
         liftIO $ Turtle.shell [i|gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile=${output} "${tmpDir}"/*.pdf|] Turtle.empty
   return ()
 
-downloadFile :: OAuth2Token -> [Char] -> FilePath -> IO ()
-downloadFile token url name = do
-  let opts =  Wreq.defaults
-            & Wreq.auth ?~ Wreq.oauth2Bearer (_rawtoken token)
-  r <- Wreq.getWith opts url
-  output <- fromLazyByteString $ r ^. Wreq.responseBody
-  S.withFileAsOutput name (S.connect output)
+
 
 requestOAuthToken :: [Char] -> [Char] -> IO OAuth2Token
 requestOAuthToken client_id client_secret = do
