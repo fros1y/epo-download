@@ -158,4 +158,4 @@ patentFormats =  Parsec.choice [Parsec.try usPubAppFormat,
                                 lensLikeFormat]
 
 parseToEPODOC :: Text -> Either Parsec.ParseError EPODOC
-parseToEPODOC = Parsec.parse patentFormats "parseToEPODOC"
+parseToEPODOC input = Parsec.parse patentFormats (convertString input) input
