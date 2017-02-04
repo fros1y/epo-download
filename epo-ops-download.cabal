@@ -6,7 +6,7 @@ license-file:        LICENSE
 author:              Martin Galese
 maintainer:          martin@galese.net
 copyright:           2017 Martin Galese
-category:            Patent
+category:            Patent, API, Parsing
 build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
