@@ -158,7 +158,9 @@ delayForRate :: OPSServiceQuota -> Int -> OPSSession ()
 delayForRate service rate = do
   let maxRate = maxQuota service
       delay = floor $ (((60.0/fromIntegral rate) - (60.0/fromIntegral maxRate)) * 1000.0 :: Double)
-  $(logDebug) [i|Service rate limit is ${rate}. Delaying ${delay} milliseconds|]
+      percent :: Int
+      percent = floor ((fromIntegral rate :: Double) / (fromIntegral maxRate :: Double) * 100)
+  $(logDebug) [i|Service quota at ${percent}%. Delaying ${delay} milliseconds|]
   liftIO $ threadDelay delay
 
 updateThrottling :: Text -> OPSSession ()
