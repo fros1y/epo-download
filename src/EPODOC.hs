@@ -111,7 +111,7 @@ patentPhrase = do
   _ <- typePhrase
   _ <- Parsec.optional $ Parsec.char '.'
   _ <- Parsec.spaces
-  _ <- numberSignalPhrase
+  _ <- Parsec.optional $ numberSignalPhrase
   _ <- Parsec.optional $ Parsec.char '.'
   _ <- Parsec.spaces
   return ()
@@ -155,7 +155,7 @@ patentFormats =  Parsec.choice [Parsec.try usPubAppFormat,
                                 Parsec.try epodocFormat,
                                 Parsec.try jpxNumber,
                                 Parsec.try messyUSPatent,
-                                lensLikeFormat]
+                                Parsec.try lensLikeFormat]
 
 parseToEPODOC :: Text -> Either Parsec.ParseError EPODOC
 parseToEPODOC input = Parsec.parse patentFormats (convertString input) input
