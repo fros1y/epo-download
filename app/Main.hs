@@ -39,24 +39,27 @@ perInstance epodocInstance = do
   EPOOPS.downloadEPODOCInstance pageProgress epodocInstance
   liftIO $ printf "Success!\n"
 
+-- die :: IsString s => s -> IO ()
+-- die s = do
+--   putStrLn s
+--   exitFailure
+
 main :: IO ()
 main = runCommand $ \opts args -> do
     hSetBuffering stdout NoBuffering
-    when (length args == 0) $ do
-      printf "You must enter at least one patent document number.\n"
-      exitFailure
+    when (length args == 0) $ die "You must enter at least one patent document number.\n"
     let parse = EPODOC.parseToEPODOC . convertString $ headDef "" args
-        onNotFoundError (StatusCodeException s _ _)
-          | (statusCode s) == 404 = Just ("Not Found" :: [Char])
+        onNotFoundError epodoc (StatusCodeException s _ _)
+          | (statusCode s) == 404 = Just (("EPODOC " <> (EPODOC.formatAsEPODOC epodoc) <> " was not found."))
           | otherwise = Nothing
-        onNotFoundError _ = Nothing
+        onNotFoundError _ _ = Nothing
         credentials = EPOOPS.Credentials (consumerKey opts) (secretKey opts)
         logLevel = if debug opts then EPOOPS.LevelDebug else EPOOPS.LevelWarn
     case parse of
       (Left err) -> do
-        printf "Input format error: %s\n" (show err :: [Char])
+        die $ printf "Input format error: %s\n" (show err :: [Char])
       (Right epodoc) ->
-        handleJust onNotFoundError (putStrLn) $
+        handleJust (onNotFoundError epodoc) (die . convertString) $
           void $ EPOOPS.withOPSSession credentials logLevel $ do
             instances <- EPOOPS.getEPODOCInstances (strict opts) epodoc
             forM_ instances perInstance
