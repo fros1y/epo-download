@@ -16,7 +16,9 @@ data PatentOptions = PatentOptions
     consumerKey :: [Char],
     secretKey   :: [Char],
     strict      :: Bool,
-    debug       :: Bool
+    debug       :: Bool,
+    saveText    :: Bool,
+    savePDF     :: Bool
   }
 
 instance Options PatentOptions where
@@ -29,20 +31,26 @@ instance Options PatentOptions where
         "Limit retrived documents to specific EPODOC input"
     <*> simpleOption "debug" False
         "Display debugging messages"
+    <*> simpleOption "saveText" True
+        "Attempt to save a text version of EPODOC"
+    <*> simpleOption "savePDF" True
+        "Download EPODOC as PDF"
 
 pageProgress :: EPOOPS.PageProgress
 pageProgress total curr = printf "[%i/%i] " curr total
 
-perInstance :: EPOOPS.InstanceListing -> EPOOPS.OPSSession ()
-perInstance epodocInstance = do
-  liftIO $ printf "Downloading %s: " $ EPODOC.formatAsEPODOC $ snd epodocInstance
-  EPOOPS.downloadEPODOCInstance pageProgress epodocInstance
-  liftIO $ printf "Success!\n"
-
--- die :: IsString s => s -> IO ()
--- die s = do
---   putStrLn s
---   exitFailure
+perInstance :: Bool -> Bool -> EPOOPS.InstanceListing -> EPOOPS.OPSSession ()
+perInstance saveP saveT epodocInstance = do
+  let epodoc = EPODOC.formatAsEPODOC $ snd epodocInstance
+  liftIO $ printf "Downloading %s: " epodoc
+  when saveP $ EPOOPS.downloadEPODOCInstance pageProgress epodocInstance
+  when saveT $ do
+    fullText <- EPOOPS.getEPODOCFullPlainText "EN" (snd epodocInstance)
+    case fullText of
+      Just t -> liftIO $ do
+        writeFile (printf "%s.txt" epodoc) t
+        putStrLn ("[Text]" :: [Char])
+      Nothing -> liftIO $ printf "Error downloading text for %s\n" epodoc
 
 main :: IO ()
 main = runCommand $ \opts args -> do
@@ -62,4 +70,4 @@ main = runCommand $ \opts args -> do
         handleJust (onNotFoundError epodoc) (die . convertString) $
           void $ EPOOPS.withOPSSession credentials logLevel $ do
             instances <- EPOOPS.getEPODOCInstances (strict opts) epodoc
-            forM_ instances perInstance
+            forM_ instances (perInstance (savePDF opts) (saveText opts))
