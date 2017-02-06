@@ -37,6 +37,12 @@ resolver: lts-7.18
 # will not be run. This is useful for tweaking upstream packages.
 packages:
 - '.'
+- location:
+    git: https://github.com/fros1y/epo-ops-api.git
+    commit: 44bac19870f3c95809eecba0f95b152aed7da14e
+  extra-dep: true
+
+
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
 extra-deps: []

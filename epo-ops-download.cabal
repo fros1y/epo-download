@@ -11,57 +11,16 @@ build-type:          Simple
 extra-source-files:  README.md
 cabal-version:       >=1.10
 
-library
-  hs-source-dirs:      src
-  ghc-options:         -Wall
-  exposed-modules:     EPODOC, EPOOPS
-  other-modules:       Lib.Prelude
-  build-depends:       base >= 4.7 && < 5
-                     , protolude >= 0.1.6 && < 0.2
-                     , string-conversions
-                     , parsec
-                     , wreq
-                     , lens
-                     , lens-aeson
-                     , here
-                     , text
-                     , bytestring
-                     , temporary
-                     , io-streams
-                     , turtle
-                     , xml-conduit
-                     , errors
-                     , containers
-                     , exceptions
-                     , monad-logger
-
-  default-language:    Haskell2010
-  default-extensions:  OverloadedStrings, NoImplicitPrelude
-
 executable epo-download
   hs-source-dirs:      app
   main-is:             Main.hs
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
-                     , epo-ops-download
+                     , epo-ops-api
                      , protolude >= 0.1.6 && < 0.2
                      , options
                      , string-conversions
                      , http-types
                      , http-client
-  default-language:    Haskell2010
-  default-extensions:  OverloadedStrings, NoImplicitPrelude
-
-test-suite epo-ops-api-test
-  type:                exitcode-stdio-1.0
-  hs-source-dirs:      test
-  main-is:             Spec.hs
-  build-depends:       base
-                     , epo-ops-download
-                     , mtl
-                     , protolude >= 0.1.6 && < 0.2
-                     , hspec
-                     , either
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude
