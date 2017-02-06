@@ -8,9 +8,16 @@ module EPOOPS
       epoRequest,
       getEPODOCInstances,
       downloadEPODOCInstance,
+      getEPODOCFullPlainText,
+      getEPODOCBibliography,
+      getEPODOCAbstractPlainText,
+      getEPODOCDescriptionPlainText,
+      getEPODOCClaimsPlainText,
       -- * Types
       OPSSession,
       OPSService (..),
+      Bibliography (..),
+      CPCCode (..),
       Credentials (..),
       InstanceListing,
       LogLevel (..),
@@ -25,6 +32,7 @@ import           Control.Lens       hiding ((&))
 import           Data.Aeson.Lens
 import qualified Data.ByteString    as B
 import           Data.String.Here
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import           EPODOC
 import           Lib.Prelude
@@ -39,9 +47,10 @@ import qualified Turtle             hiding ((<>))
 
 import qualified Data.Map.Strict    as Map
 import qualified Text.XML           as XML
-import           Text.XML.Cursor    (($//), (>=>))
+import           Text.XML.Cursor    (($//), (>=>), (&//), ($/))
 import qualified Text.XML.Cursor    as XML
 import qualified Control.Monad.Catch as Catch
+import Data.Maybe (fromJust)
 
 import Control.Monad.Logger
 
@@ -194,7 +203,6 @@ updateThrottling rawThrottle = do
 -- | Main function for requesting data from the EPO OPS system. An EPODOC and
 -- an OPSService type are required, and an XML.Document type is returned with the raw
 -- XML response from the EPO OPS service.
-
 epoRequest :: EPODOC -> OPSService -> OPSSession XML.Document
 epoRequest epodoc service = do
   token <- authenticate
@@ -202,6 +210,7 @@ epoRequest epodoc service = do
   let opts =  Wreq.defaults
             & Wreq.auth ?~ Wreq.oauth2Bearer (_rawtoken token)
       query = [i|${opsEndPoint}/rest-services/published-data/publication/${opsSearchString epodoc}/${opsServiceToEndPoint service}|]
+  $(logDebug) [i|GET: ${query}|]
   r <- liftIO $ Wreq.getWith opts query
   let body = r ^. Wreq.responseBody
       xml = XML.parseLBS_ XML.def body
@@ -225,12 +234,244 @@ downloadFile url name = do
   potentiallyThrottle Images
   let opts =  Wreq.defaults
             & Wreq.auth ?~ Wreq.oauth2Bearer (_rawtoken token)
+  $(logDebug) [i|GET: ${url}|]
   r <- liftIO $ Wreq.getWith opts url
   output <- liftIO $ fromLazyByteString $ r ^. Wreq.responseBody
   liftIO $ S.withFileAsOutput name (S.connect output)
   let rawThrottle :: Text
       rawThrottle = convertString $ r ^. Wreq.responseHeader "X-Throttling-Control"
   updateThrottling rawThrottle
+
+extractDescription :: [Char] -> XML.Document -> Text
+extractDescription lang xml = T.intercalate (convertString $ ("\n" :: [Char])) descriptionElements where
+  cursor = XML.fromDocument xml
+  descriptionElements = cursor
+    $// XML.laxElement "description"
+      >=> XML.check (rightLang lang)
+    &// XML.laxElement "p"
+    &// XML.content
+
+extractClaims :: [Char] -> XML.Document -> Text
+extractClaims lang xml = T.intercalate (convertString $ ("\n" :: [Char])) claimsElements where
+  cursor = XML.fromDocument xml
+  claimsElements = cursor
+    $// XML.laxElement "claims"
+      >=> XML.check (rightLang lang)
+    &// XML.laxElement "claim-text"
+    &// XML.content
+
+rightLang :: [Char] -> XML.Cursor -> Bool
+rightLang lang cursor = languageAttr == languageFilter where
+  languageAttr = T.toLower $ headDef "" (XML.attribute "lang" cursor)
+  languageFilter = T.toLower $ convertString lang
+
+extractAbstract :: [Char] -> XML.Document -> Text
+extractAbstract lang xml = T.intercalate (convertString $ ("\n" :: [Char])) abstractParas where
+  cursor = XML.fromDocument xml
+  abstractParas = cursor
+    $// XML.laxElement "abstract"
+      >=> XML.check (rightLang lang)
+    &// XML.laxElement "p"
+    &// XML.content
+
+
+data CPCCode = CPCCode {
+  cpcSection :: Text,
+  cpcClass :: Text,
+  cpcSubclass :: Text,
+  cpcMainGroup :: Text,
+  cpcSubgroup :: Text
+} deriving (Show)
+
+data Bibliography = Bibliography {
+    epodocPubDate :: Date
+,   epodocIPCs :: [Text]
+,   epodocCPCs :: [CPCCode]
+,   epodocAppDate :: Date
+,   epodocAppEPODOC :: EPODOC
+,   epodocPriorityDates :: [Date]
+,   epodocPriorityEPODOCs :: [EPODOC]
+,   epodocApplicants :: [Text]
+,   epodocInventors :: [Text]
+,   epodocTitle :: Text
+,   epodocPatentCitations :: [EPODOC]
+,   epodocAbstract :: Text
+} deriving (Show)
+
+formatFrontPage :: Bibliography -> Text
+formatFrontPage bib = [i|
+Title: ${epodocTitle bib}
+Applicants: ${applicants}
+Inventors: ${inventors}
+
+ABSTRACT
+${epodocAbstract bib}
+|] where
+  applicants = formatList $ epodocApplicants bib
+  inventors = formatList $ epodocInventors bib
+  formatList :: [Text] -> Text
+  formatList items = T.intercalate ", " $ formatItem <$> items
+  formatItem :: Text -> Text
+  formatItem item = T.map clean item
+  clean ' ' = ' '
+  clean '\n' = ' '
+  clean x = x
+
+formatCPC :: XML.Cursor -> CPCCode
+formatCPC cursor = CPCCode {
+    cpcSection = section
+  , cpcClass = class_
+  , cpcSubclass = subclass
+  , cpcMainGroup = mainGroup
+  , cpcSubgroup = subGroup
+  } where
+    section = headDef "" $ cursor $/ XML.laxElement "section" &// XML.content
+    class_ = headDef "" $  cursor $/ XML.laxElement "class" &// XML.content
+    subclass = headDef "" $ cursor $/ XML.laxElement "subclass" &// XML.content
+    mainGroup = headDef "" $ cursor $/ XML.laxElement "main-group" &// XML.content
+    subGroup = headDef "" $ cursor $/ XML.laxElement "subgroup" &// XML.content
+
+docdbXMLToEPODOC :: XML.Cursor -> EPODOC
+docdbXMLToEPODOC cursor = EPODOC {
+   countryCode = cc
+,  serial = serialNo
+,  kind = Just kindCode
+, untrimmedSerial = Nothing
+} where
+  cc = headDef "" $ cursor $/ XML.laxElement "country" &// XML.content
+  serialNo = headDef "" $ cursor $/ XML.laxElement "doc-number" &// XML.content
+  kindCode = headDef "" $ cursor $/ XML.laxElement "kind" &// XML.content
+
+type Date = Text
+
+
+
+isCPC :: XML.Cursor -> Bool
+isCPC cursor = T.toLower "CPC" == T.toLower scheme where
+  scheme = headDef "" $ concat $ XML.attribute "scheme" <$> (cursor $/ XML.laxElement "classification-scheme")
+
+getEPODOCBibliography :: [Char] -> EPODOC -> OPSSession Bibliography
+getEPODOCBibliography lang epodoc = do
+  rawBiblio <- epoRequest epodoc Biblio
+  let
+    cursor = XML.fromDocument rawBiblio
+    pubDate = headDef "" $ cursor
+      $// XML.laxElement "publication-reference"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "epodoc"
+      &// XML.laxElement "date"
+      &// XML.content
+    ipcs = cursor
+      $// XML.laxElement "classification-ipc"
+      &// XML.laxElement "text"
+      &// XML.content
+    cpcs = formatCPC <$> (cursor
+      $// XML.laxElement "patent-classification"
+        >=> XML.check isCPC)
+    appDate = headDef "" $ cursor
+      $// XML.laxElement "application-reference"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "epodoc"
+      &// XML.laxElement "date"
+      &// XML.content
+    appEPODOC = headMay $ docdbXMLToEPODOC <$> (cursor
+      $// XML.laxElement "application-reference"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "docdb")
+    priorityDates = cursor
+      $// XML.laxElement "priority-claim"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "epodoc"
+      &// XML.laxElement "date"
+      &// XML.content
+    priorityDocuments = EPODOC.parseToEPODOC <$> (cursor
+      $// XML.laxElement "priority-claim"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "epodoc"
+      &// XML.laxElement "doc-number"
+      &// XML.content)
+    applicants = cursor
+      $// XML.laxElement "applicant"
+        >=> XML.attributeIs "data-format" "epodoc"
+      &// XML.laxElement "name"
+      &// XML.content
+    inventors = cursor
+      $// XML.laxElement "inventor"
+        >=> XML.attributeIs "data-format" "epodoc"
+      &// XML.laxElement "name"
+      &// XML.content
+    title = headMay $ cursor
+      $// XML.laxElement "invention-title"
+        >=> XML.check (rightLang lang)
+      &// XML.content
+    patentCitations :: [EPODOC]
+    patentCitations = docdbXMLToEPODOC <$> (cursor
+      $// XML.laxElement "patcit"
+      &// XML.laxElement "document-id"
+        >=> XML.attributeIs "document-id-type" "docdb")
+    abstract = cursor
+      $// XML.laxElement "abstract"
+        >=> XML.check (rightLang lang)
+      &// XML.laxElement "p"
+      &// XML.content
+  return Bibliography {
+      epodocPubDate = pubDate
+    , epodocIPCs = ipcs
+    , epodocCPCs = cpcs
+    , epodocAppDate = appDate
+    , epodocAppEPODOC = fromJust appEPODOC
+    , epodocPriorityDates = priorityDates
+    , epodocPriorityEPODOCs = rights priorityDocuments
+    , epodocApplicants = applicants
+    , epodocInventors = inventors
+    , epodocTitle = fromJust title
+    , epodocAbstract = T.intercalate (convertString $ ("\n" :: [Char])) abstract
+    , epodocPatentCitations = patentCitations
+  }
+
+
+getEPODOCFrontPagePlainText :: [Char] -> EPODOC -> OPSSession Text
+getEPODOCFrontPagePlainText language epodoc = formatFrontPage <$> getEPODOCBibliography language epodoc
+
+-- | Gets the abstract for an EPODOC from EPO OPS.
+getEPODOCAbstractPlainText :: [Char] -> EPODOC -> OPSSession Text
+getEPODOCAbstractPlainText language epodoc = extractAbstract language <$> epoRequest epodoc Abstract
+
+-- | Gets the claims for an EPODOC from EPO OPS.
+-- Note that EPO OPS only has the fulltext for the following authorities: EP, WO, AT, CH, GB, ES,  CA, and FR.
+getEPODOCClaimsPlainText :: [Char] -> EPODOC -> OPSSession (Maybe Text)
+getEPODOCClaimsPlainText language epodoc
+  | countryCode epodoc `elem` ["EP", "WO", "AT", "CH", "GB", "ES", "CA", "FR"] = do
+      claims <- extractClaims language <$> epoRequest epodoc Claims
+      return (Just claims)
+  | otherwise = return Nothing
+
+-- | Gets the description of the description and claims for an EPODOC from EPO OPS.
+-- Note that EPO OPS only has the fulltext for the following authorities: EP, WO, AT, CH, GB, ES,  CA, and FR.
+getEPODOCDescriptionPlainText :: [Char] -> EPODOC -> OPSSession (Maybe Text)
+getEPODOCDescriptionPlainText language epodoc
+  | countryCode epodoc `elem` ["EP", "WO", "AT", "CH", "GB", "ES", "CA", "FR"] = do
+      description <- extractDescription language <$> epoRequest epodoc Description
+      return (Just description)
+  | otherwise = return Nothing
+
+-- | Gets the fulltext of the description and claims for an EPODOC from EPO OPS.
+-- Note that EPO OPS only has the fulltext for the following authorities: EP, WO, AT, CH, GB, ES,  CA, and FR.
+getEPODOCFullPlainText :: [Char] -> EPODOC -> OPSSession (Maybe Text)
+getEPODOCFullPlainText language epodoc = do
+  front <- getEPODOCFrontPagePlainText language epodoc
+  description <- getEPODOCDescriptionPlainText language epodoc
+  claims <- getEPODOCClaimsPlainText language epodoc
+  case (description, claims) of
+    (Just d, Just c) -> return $ Just $ [i|
+${front}
+
+DESCRIPTION
+${d}
+
+CLAIMS
+${c}|]
+    _ -> return Nothing
 
 -- | Gets a list of Document Instances that correspond with a particular EPODOC. (See InstanceListing)
 -- Strictness determines whether non-equivalent EPODOCs are returned (see EPODOC.equivEPODOC)
@@ -316,6 +557,7 @@ opsServiceToEndPoint s
   | s == Claims = "claims"
   | s == Equivalents = "equivalents"
   | s == Images = "images"
+  | otherwise = notImplemented
 
 opsServiceStateFromString :: [Char] -> OPSServiceState
 opsServiceStateFromString "idle" = Idle
