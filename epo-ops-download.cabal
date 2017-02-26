@@ -1,4 +1,4 @@
-name:                epo-ops-download
+name:                epo-download
 version:             0.1.0.0
 synopsis:            Download PDFs of patent documents using EPO OPS API
 license:             AGPL-3
