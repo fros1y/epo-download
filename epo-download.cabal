@@ -22,6 +22,10 @@ executable epo-download
                      , string-conversions
                      , http-types
                      , http-client
+                     , http-client-tls
                      , text
+                     , ini
+                     , directory
+                     , filepath >= 1.4
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude
