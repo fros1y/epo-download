@@ -39,6 +39,7 @@ instance Options PatentOptions where
       "~/.patent-api-config"
       "Path for configuration file"
 
+getFullPath :: FilePath -> IO FilePath
 getFullPath path =
   withPathComponents . replaceHome <$> getHomeDirectory <*> return path
   where
