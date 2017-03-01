@@ -32,7 +32,7 @@ instance Options PatentOptions where
     simpleOption
       "strict"
       True
-      "Limit retrived documents to specific EPODOC input" <*>
+      "Limit retrieved documents to specific EPODOC input" <*>
     simpleOption "debug" False "Display debugging messages" <*>
     simpleOption
       "configPath"
@@ -74,7 +74,7 @@ main =
     configFile <- getFullPath (configPath opts)
     config <- tryJust (guard . isDoesNotExistError) $ Ini.readIniFile configFile
     hSetBuffering stdout NoBuffering
-    when (length args == 0) $
+    when (null args) $
       die "You must enter at least one patent document number.\n"
     let parse = Parse.parseCitation . convertString $ headDef "" args
         credentials = getCredentials opts (rightToMaybe config)
@@ -90,3 +90,4 @@ main =
         EPO.withSession credentials EPO.v32 logLevel $ do
           instances <- EPO.getCitationInstances (strict opts) epodoc
           forM_ instances perInstance
+    printf "\n"
