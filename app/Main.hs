@@ -5,6 +5,7 @@ import qualified Data.Patent.Citation.Format   as Format
 import qualified Data.Patent.Citation.Parse    as Parse
 import qualified Data.Patent.Providers.EPO     as EPO
 import qualified Data.Patent.Providers.EPO.PDF as EPO
+import qualified Data.Patent.Types             as Patent
 import           Data.String.Conversions       (convertString)
 import qualified Data.Text                     as T
 import           Options
@@ -55,6 +56,7 @@ perInstance epodocInstance = do
   let epodoc = Format.asEPODOC $ snd epodocInstance
   liftIO $ printf "Downloading %s: " epodoc
   EPO.downloadCitationInstance pageProgress epodocInstance
+  liftIO $ printf "\n"
 
 getCredentials :: PatentOptions
                -> Maybe (Either [Char] Ini.Ini)
@@ -68,6 +70,14 @@ getCredentials opts (Just (Right ini)) =
 getCredentials opts _ =
   EPO.Credentials (T.pack . consumerKey $ opts) (T.pack . secretKey $ opts)
 
+downloadInstancesFor :: Bool -> Patent.Citation -> EPO.Session ()
+downloadInstancesFor strictness citation = do
+  instances <- EPO.getCitationInstances strictness citation
+  forM_ instances perInstance
+
+parseInput :: [[Char]] -> [Patent.Citation]
+parseInput args = rights $ Parse.parseCitation . T.pack <$> args
+
 main :: IO ()
 main =
   runCommand $ \opts args -> do
@@ -76,18 +86,12 @@ main =
     hSetBuffering stdout NoBuffering
     when (null args) $
       die "You must enter at least one patent document number.\n"
-    let parse = Parse.parseCitation . convertString $ headDef "" args
+    let todo = parseInput args
         credentials = getCredentials opts (rightToMaybe config)
         logLevel =
           if debug opts
             then EPO.LevelDebug
             else EPO.LevelWarn
-    case parse of
-      (Left err) -> do
-        die $ printf "Input format error: %s\n" (show err :: [Char])
-      (Right epodoc) ->
-        void $
-        EPO.withSession credentials EPO.v32 logLevel $ do
-          instances <- EPO.getCitationInstances (strict opts) epodoc
-          forM_ instances perInstance
-    printf "\n"
+    when (null args) $ die "You must enter at least one valid patent number.\n"
+    EPO.withSession credentials EPO.v32 logLevel $
+      forM_ todo (downloadInstancesFor (strict opts))
