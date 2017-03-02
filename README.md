@@ -8,10 +8,11 @@ a PDF. Various options can be listed by typing `--help`. Citations can be provid
 Requires a consumer and secret key from the EPO OPS developer console to be passed in
 as command line parameters or in a file, defaulting to ~/.patent-api-config. The file should look like this:
 
-`[EPO]
+```
+[EPO]
 consumerKey=XXXXX
 secretKey=XXXXXX
-`
+```
 
 Credentials can be obtained by registering for a free account from https://developers.epo.org, selecting "My Apps" from the menu bar, and adding a new app. Free accounts have rate and download caps.  The `patent-api` package used attempts to rate limit all requests according to EPO usage guidance.
 
