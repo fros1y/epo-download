@@ -6,7 +6,6 @@ import qualified Data.Patent.Citation.Parse    as Parse
 import qualified Data.Patent.Providers.EPO     as EPO
 import qualified Data.Patent.Providers.EPO.PDF as EPO
 import qualified Data.Patent.Types             as Patent
-import           Data.String.Conversions       (convertString)
 import qualified Data.Text                     as T
 import           Options
 import           Protolude
@@ -15,6 +14,7 @@ import           System.FilePath               (joinPath, splitPath)
 import           System.IO                     (BufferMode (NoBuffering),
                                                 hSetBuffering, stdout)
 import           System.IO.Error
+import           Text.CSV
 import           Text.Printf                   (printf)
 
 data PatentOptions = PatentOptions
@@ -23,6 +23,8 @@ data PatentOptions = PatentOptions
   , strict      :: Bool
   , debug       :: Bool
   , configPath  :: [Char]
+  , csvMode     :: Bool
+  , csvColumn   :: Int
   }
 
 instance Options PatentOptions where
@@ -38,7 +40,9 @@ instance Options PatentOptions where
     simpleOption
       "configPath"
       "~/.patent-api-config"
-      "Path for configuration file"
+      "Path for configuration file" <*>
+    simpleOption "csvMode" False "Load citations from CSV file" <*>
+    simpleOption "csvColumn" 0 "Column of CSV with citations"
 
 getFullPath :: FilePath -> IO FilePath
 getFullPath path =
@@ -78,16 +82,26 @@ downloadInstancesFor strictness citation = do
 parseInput :: [[Char]] -> [Patent.Citation]
 parseInput args = rights $ Parse.parseCitation . T.pack <$> args
 
+extractColumn :: Int -> [[Field]] -> [[Char]]
+extractColumn column = map (\row -> atDef "" row column)
+
 main :: IO ()
 main =
   runCommand $ \opts args -> do
     configFile <- getFullPath (configPath opts)
     config <- tryJust (guard . isDoesNotExistError) $ Ini.readIniFile configFile
     hSetBuffering stdout NoBuffering
-    when (null args) $
-      die "You must enter at least one patent document number.\n"
-    let todo = parseInput args
-        credentials = getCredentials opts (rightToMaybe config)
+    todo <-
+      if csvMode opts
+        then do
+          contents <- parseCSVFromFile (headDef "" args)
+          return $
+            either
+              (const [])
+              (parseInput . extractColumn (csvColumn opts))
+              contents
+        else return $ parseInput args
+    let credentials = getCredentials opts (rightToMaybe config)
         logLevel =
           if debug opts
             then EPO.LevelDebug
