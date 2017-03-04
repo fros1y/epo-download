@@ -1,6 +1,8 @@
 module Main where
 
 import           Control.Lens.Operators
+
+-- import           Data.Either.Unwrap            (eitherM)
 import qualified Data.Ini                      as Ini
 import qualified Data.Patent.Citation.Format   as Format
 import qualified Data.Patent.Citation.Parse    as Parse
@@ -78,10 +80,19 @@ getCredentials opts _ =
 downloadInstancesFor :: Bool -> Patent.Citation -> EPO.Session ()
 downloadInstancesFor strictness citation = do
   instances <- EPO.getCitationInstances strictness citation
-  forM_ instances perInstance
+  if (null instances)
+    then do
+      liftIO $ printf "No results found for %s.\n" (Format.asEPODOC citation)
+      return ()
+    else do
+      forM_ instances perInstance
 
-parseInput :: [[Char]] -> [Patent.Citation]
-parseInput args = rights $ Parse.parseCitation . T.pack <$> args
+parseInput :: [Char] -> IO (Maybe Patent.Citation)
+parseInput arg =
+  either
+    (const $ printf "Error parsing \"%s\"\n" arg >> return Nothing)
+    (return . Just) $
+  Parse.parseCitation . T.pack $ arg
 
 extractColumn :: Int -> [[Field]] -> [[Char]]
 extractColumn column = map (\row -> atDef "" row column)
@@ -92,21 +103,22 @@ main =
     configFile <- getFullPath (configPath opts)
     config <- tryJust (guard . isDoesNotExistError) $ Ini.readIniFile configFile
     hSetBuffering stdout NoBuffering
-    todo <-
+    input <-
       if csvMode opts
         then do
-          contents <- parseCSVFromFile (headDef "" args)
-          return $
-            either
-              (const [])
-              (parseInput . extractColumn (csvColumn opts))
-              contents
-        else return $ parseInput args
+          file <- parseCSVFromFile (headDef "" args)
+          either
+            (const $ die "Error parsing CSV file\n" >> return [])
+            (return . (extractColumn (csvColumn opts)))
+            file
+        else return args
+    citations <- catMaybes <$> mapM parseInput input
     let credentials = getCredentials opts (rightToMaybe config)
         logLevel =
           if debug opts
             then EPO.LevelDebug
             else EPO.LevelWarn
-    when (null args) $ die "You must enter at least one valid patent number.\n"
+    when (null args) $
+      die "You must enter at least one patent document number.\n"
     EPO.withSession credentials EPO.v32 logLevel $
-      forM_ todo (downloadInstancesFor (strict opts))
+      forM_ citations (downloadInstancesFor (strict opts))
