@@ -2,7 +2,6 @@ module Main where
 
 import           Control.Lens.Operators
 
--- import           Data.Either.Unwrap            (eitherM)
 import qualified Data.Ini                      as Ini
 import qualified Data.Patent.Citation.Format   as Format
 import qualified Data.Patent.Citation.Parse    as Parse
