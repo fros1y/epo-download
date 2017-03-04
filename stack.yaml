@@ -4,7 +4,7 @@ packages:
 - '.'
 - location:
     git: git@github.com:fros1y/patent-api.git
-    commit: 3c0cfff81968acf6499a4e43974fb12fcd74483d
+    commit: 014a3f3e15c630732b35d7fc687cc57bd1aa0497
   extra-dep: true
 # - location: ../patent-api/
 #   extra-dep: true

@@ -28,5 +28,6 @@ executable epo-download
                      , directory
                      , filepath >= 1.4
                      , csv
+                     , lens >= 4.15
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude

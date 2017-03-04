@@ -1,5 +1,6 @@
 module Main where
 
+import           Control.Lens.Operators
 import qualified Data.Ini                      as Ini
 import qualified Data.Patent.Citation.Format   as Format
 import qualified Data.Patent.Citation.Parse    as Parse
@@ -57,7 +58,7 @@ pageProgress total curr = printf "[%i/%i] " curr total
 
 perInstance :: EPO.Instance -> EPO.Session ()
 perInstance epodocInstance = do
-  let epodoc = Format.asEPODOC $ snd epodocInstance
+  let epodoc = Format.asEPODOC $ epodocInstance ^. EPO.fullCitation
   liftIO $ printf "Downloading %s: " epodoc
   EPO.downloadCitationInstance pageProgress epodocInstance
   liftIO $ printf "\n"
