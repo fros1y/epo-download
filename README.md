@@ -4,6 +4,14 @@
 
 A command line tool for downloading patent documents from the EPO and saving as a PDF. Bookmarks to patent sections (Drawings, Claims, etc.) are added when indicated in upstream data.
 
+```
+>epo-download US7654321
+...
+>ls
+...
+US7654321B2.pdf
+...
+```
 Various options can be listed by typing `--help`. Citations can be provided in a variety of formats, including some poorly formatted, but common, ways of representing a patent document.  These citations can be provided as a list on the command line or, if the csv flags are set, from a given column of a CSV file.
 
 Requires a consumer and secret key from the EPO OPS developer console to be passed in as command line parameters or in a file, defaulting to ~/.patent-api-config. The file should look like this:
