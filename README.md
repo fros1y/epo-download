@@ -34,6 +34,7 @@ Using Homebrew:
 brew install haskell-stack ghostscript
 git clone https://github.com/fros1y/epo-download
 cd epo-download
+stack setup
 stack install
 ```
 
