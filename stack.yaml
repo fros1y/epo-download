@@ -3,7 +3,7 @@ extra-package-dbs: []
 packages:
 - '.'
 - location:
-    git: https://github.com:fros1y/patent-api.git
+    git: https://github.com:fros1y/patent-api
     commit: 014a3f3e15c630732b35d7fc687cc57bd1aa0497
   extra-dep: true
 # - location: ../patent-api/
