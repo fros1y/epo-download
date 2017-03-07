@@ -1,4 +1,5 @@
 # epo-download
+[![Build Status](https://travis-ci.org/fros1y/epo-download.svg?branch=master)](https://travis-ci.org/fros1y/epo-download)
 
 ## Usage
 
