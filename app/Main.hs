@@ -27,6 +27,7 @@ data PatentOptions = PatentOptions
   , configPath  :: [Char]
   , csvMode     :: Bool
   , csvColumn   :: Int
+  , writeReport :: [Char]
   }
 
 instance Options PatentOptions where
@@ -44,7 +45,11 @@ instance Options PatentOptions where
       "~/.patent-api-config"
       "Path for configuration file" <*>
     simpleOption "csvMode" False "Load citations from CSV file" <*>
-    simpleOption "csvColumn" 0 "Column of CSV with citations"
+    simpleOption "csvColumn" 0 "Column of CSV with citations" <*>
+    simpleOption
+      "writeReport"
+      ""
+      "Export a report in CSV format of downloaded patents, including bibliographic information"
 
 getFullPath :: FilePath -> IO FilePath
 getFullPath path =
@@ -81,7 +86,7 @@ downloadInstancesFor strictness citation = do
   instances <- EPO.getCitationInstances strictness citation
   if (null instances)
     then do
-      liftIO $ printf "No results found for %s.\n" (Format.asEPODOC citation)
+      liftIO $ printf "%s\tNo results found.\n" (Format.asEPODOC citation)
       return ()
     else do
       forM_ instances perInstance
@@ -95,6 +100,23 @@ parseInput arg =
 
 extractColumn :: Int -> [[Field]] -> [[Char]]
 extractColumn column = map (\row -> atDef "" row column)
+
+reportOn :: Patent.Citation -> EPO.Session Record
+reportOn citation = do
+  bib <- EPO.getBibliography "en" citation
+  pure $
+    T.unpack <$>
+    [ Format.asEPODOC citation
+    , bib ^. Patent.biblioTitle
+    , bib ^. Patent.biblioPubDate
+    , bib ^. Patent.biblioAppDate
+    , Format.asEPODOC $ bib ^. Patent.biblioAppCitation
+    , T.intercalate "; " $ bib ^. Patent.biblioApplicants
+    , T.intercalate "; " $ bib ^. Patent.biblioInventors
+    , bib ^. Patent.biblioFamilyID
+    , T.intercalate "; " $
+      Format.asEPODOC <$> bib ^. Patent.biblioPriorityCitations
+    ]
 
 main :: IO ()
 main =
@@ -119,5 +141,8 @@ main =
             else EPO.LevelWarn
     when (null args) $
       die "You must enter at least one patent document number.\n"
-    EPO.withSession credentials EPO.v32 logLevel $
+    EPO.withSession credentials EPO.v32 logLevel $ do
       forM_ citations (downloadInstancesFor (strict opts))
+      when (length (writeReport opts) > 0) $ do
+        csvReport <- mapM reportOn citations
+        liftIO $ writeFile (writeReport opts) $ T.pack $ printCSV csvReport
